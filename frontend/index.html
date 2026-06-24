@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BFHL Graph Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen p-8">
+
+    <div class="max-w-5xl mx-auto space-y-8">
+        
+        <header class="text-center space-y-2">
+            <h1 class="text-4xl font-bold text-gray-800">Node Relationship Processor</h1>
+            <p class="text-gray-500">Enter a JSON array of directed edges to generate hierarchies.</p>
+        </header>
+
+        <section class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            <label for="jsonInput" class="block text-sm font-semibold text-gray-700 mb-2">Input Data (JSON format):</label>
+            <textarea id="jsonInput" rows="5" class="w-full p-4 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder='{&#10;  "data": ["A->B", "A->C", "B->D"]&#10;}'></textarea>
+            
+            <div class="mt-4 flex justify-between items-center">
+                <span id="errorMessage" class="text-red-500 text-sm font-medium hidden"></span>
+                <button id="submitBtn" onclick="processData()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg transition-colors ml-auto">
+                    Process Graph
+                </button>
+            </div>
+        </section>
+
+        <section id="resultsSection" class="hidden space-y-6">
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 text-center">
+                    <p class="text-sm text-gray-500 font-semibold uppercase tracking-wider">Total Trees</p>
+                    <p id="totalTrees" class="text-3xl font-bold text-blue-600 mt-2">-</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 text-center">
+                    <p class="text-sm text-gray-500 font-semibold uppercase tracking-wider">Total Cycles</p>
+                    <p id="totalCycles" class="text-3xl font-bold text-red-500 mt-2">-</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 text-center">
+                    <p class="text-sm text-gray-500 font-semibold uppercase tracking-wider">Largest Tree Root</p>
+                    <p id="largestRoot" class="text-3xl font-bold text-green-600 mt-2">-</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-red-100">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-3">Invalid Entries</h3>
+                    <div id="invalidTags" class="flex flex-wrap gap-2"></div>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-yellow-100">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-3">Duplicate Edges</h3>
+                    <div id="duplicateTags" class="flex flex-wrap gap-2"></div>
+                </div>
+            </div>
+
+            <div class="bg-gray-800 rounded-xl shadow-md overflow-hidden">
+                <div class="bg-gray-900 px-4 py-2 flex justify-between items-center">
+                    <span class="text-gray-300 font-mono text-sm">Hierarchies (Trees & Cycles)</span>
+                </div>
+                <div class="p-4 overflow-x-auto">
+                    <pre id="hierarchiesDisplay" class="text-green-400 font-mono text-sm leading-relaxed"></pre>
+                </div>
+            </div>
+
+        </section>
+    </div>
+
+    <script>
+        async function processData() {
+            const inputField = document.getElementById('jsonInput');
+            const errorMsg = document.getElementById('errorMessage');
+            const resultsSection = document.getElementById('resultsSection');
+            const submitBtn = document.getElementById('submitBtn');
+
+            // Reset UI state
+            errorMsg.classList.add('hidden');
+            errorMsg.innerText = '';
+            
+            let parsedData;
+            
+            // 1. Validate JSON on the frontend
+            try {
+                parsedData = JSON.parse(inputField.value);
+                if (!parsedData.data || !Array.isArray(parsedData.data)) {
+                    throw new Error("JSON must contain a 'data' array.");
+                }
+            } catch (err) {
+                errorMsg.innerText = "Invalid JSON format: " + err.message;
+                errorMsg.classList.remove('hidden');
+                return;
+            }
+
+            submitBtn.innerText = "Processing...";
+            submitBtn.disabled = true;
+
+            // 2. Call the Backend API
+            try {
+                const response = await fetch('http://localhost:3000/bfhl', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(parsedData)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                // 3. Populate the UI with the result data
+                document.getElementById('totalTrees').innerText = result.summary.total_trees;
+                document.getElementById('totalCycles').innerText = result.summary.total_cycles;
+                document.getElementById('largestRoot').innerText = result.summary.largest_tree_root || 'N/A';
+
+                // Populate Tags
+                const invalidContainer = document.getElementById('invalidTags');
+                invalidContainer.innerHTML = result.invalid_entries.length === 0 ? '<span class="text-gray-400 text-sm">None</span>' : 
+                    result.invalid_entries.map(tag => `<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-mono">${tag}</span>`).join('');
+
+                const duplicateContainer = document.getElementById('duplicateTags');
+                duplicateContainer.innerHTML = result.duplicate_edges.length === 0 ? '<span class="text-gray-400 text-sm">None</span>' : 
+                    result.duplicate_edges.map(tag => `<span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs font-mono">${tag}</span>`).join('');
+
+                // Populate Trees
+                document.getElementById('hierarchiesDisplay').innerText = JSON.stringify(result.hierarchies, null, 2);
+
+                // Reveal Results
+                resultsSection.classList.remove('hidden');
+
+            } catch (err) {
+                errorMsg.innerText = "Failed to connect to API. Is your backend running?";
+                errorMsg.classList.remove('hidden');
+            } finally {
+                submitBtn.innerText = "Process Graph";
+                submitBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
